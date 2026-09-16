@@ -26,16 +26,15 @@ bool virtualize_cpu(vcpu* v_cpu)
 		return false;
 	}
 	v_cpu->vmcs_loaded = true;
-	DbgPrint(DRIVER_DBG "VMCS: 0x%llx (phys: 0x%llx)\n", v_cpu->vmcs_region, v_cpu->vmcs_region_phys);
 
 	RtlSecureZeroMemory((void*)v_cpu->vmm_stack, VMM_STACK_SIZE);
 
 	RtlSecureZeroMemory((void*)&v_cpu->msr_bitmap, PAGE_SIZE);
 	v_cpu->msr_bitmap_phys = MmGetPhysicalAddress((void*)&v_cpu->msr_bitmap).QuadPart;
 
-	DbgPrint(DRIVER_DBG "VMXON region: 0x%llx (phys: 0x%llx)\n", v_cpu->vmxon_region, v_cpu->vmxon_region_phys);
-	DbgPrint(DRIVER_DBG "VMCS region: 0x%llx (phys: 0x%llx)\n", v_cpu->vmcs_region, v_cpu->vmcs_region_phys);
-	DbgPrint(DRIVER_DBG "MSR bitmap: 0x%llx (phys: 0x%llx)\n", v_cpu->msr_bitmap, v_cpu->msr_bitmap_phys);
+	DbgPrint(DRIVER_DBG "VMXON region: 0x%llx (phys: 0x%llx)\n", &v_cpu->vmxon_region, v_cpu->vmxon_region_phys);
+	DbgPrint(DRIVER_DBG "VMCS region: 0x%llx (phys: 0x%llx)\n", &v_cpu->vmcs_region, v_cpu->vmcs_region_phys);
+	DbgPrint(DRIVER_DBG "MSR bitmap: 0x%llx (phys: 0x%llx)\n", &v_cpu->msr_bitmap, v_cpu->msr_bitmap_phys);
 	DbgPrint(DRIVER_DBG "VMM stack: 0x%llx\n", v_cpu->vmm_stack);
 
 	if (!setup_vmcs(v_cpu))
