@@ -1,0 +1,35 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.37516.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Hypervisor", "Hypervisor\Hypervisor.vcxproj", "{F68BB0B1-6191-8069-DDAB-055D10F0E024}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|ARM64 = Debug|ARM64
+		Debug|x64 = Debug|x64
+		Release|ARM64 = Release|ARM64
+		Release|x64 = Release|x64
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{F68BB0B1-6191-8069-DDAB-055D10F0E024}.Debug|ARM64.ActiveCfg = Debug|ARM64
+		{F68BB0B1-6191-8069-DDAB-055D10F0E024}.Debug|ARM64.Build.0 = Debug|ARM64
+		{F68BB0B1-6191-8069-DDAB-055D10F0E024}.Debug|ARM64.Deploy.0 = Debug|ARM64
+		{F68BB0B1-6191-8069-DDAB-055D10F0E024}.Debug|x64.ActiveCfg = Debug|x64
+		{F68BB0B1-6191-8069-DDAB-055D10F0E024}.Debug|x64.Build.0 = Debug|x64
+		{F68BB0B1-6191-8069-DDAB-055D10F0E024}.Debug|x64.Deploy.0 = Debug|x64
+		{F68BB0B1-6191-8069-DDAB-055D10F0E024}.Release|ARM64.ActiveCfg = Release|ARM64
+		{F68BB0B1-6191-8069-DDAB-055D10F0E024}.Release|ARM64.Build.0 = Release|ARM64
+		{F68BB0B1-6191-8069-DDAB-055D10F0E024}.Release|ARM64.Deploy.0 = Release|ARM64
+		{F68BB0B1-6191-8069-DDAB-055D10F0E024}.Release|x64.ActiveCfg = Release|x64
+		{F68BB0B1-6191-8069-DDAB-055D10F0E024}.Release|x64.Build.0 = Release|x64
+		{F68BB0B1-6191-8069-DDAB-055D10F0E024}.Release|x64.Deploy.0 = Release|x64
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {ACD4EF3D-C9D3-4C51-BB5C-61486500D47D}
+	EndGlobalSection
+EndGlobal
