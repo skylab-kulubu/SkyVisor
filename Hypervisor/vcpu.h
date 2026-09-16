@@ -15,7 +15,7 @@ struct alignas(PAGE_SIZE) vcpu
 	UINT64 vmcs_region_phys;
 	UINT64 msr_bitmap_phys;
 	UINT64 eptp;
-	bool vmx_enabled;
+	bool vmxe_bit_enabled;
 	bool in_vmx_mode;
 	bool vmcs_loaded;
 	bool vm_launched;

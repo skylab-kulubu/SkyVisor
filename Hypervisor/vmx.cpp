@@ -81,14 +81,14 @@ void devirtualize_system()
 	DbgPrint(DRIVER_DBG "Terminated VMX.\n");
 }
 
-void enable_vmx()
+void enable_vmxe_bit()
 {
 	ULONGLONG cr4 = __readcr4();
 	cr4 |= CR4_VMX_ENABLE_FLAG;
 	__writecr4(cr4);
 }
 
-void disable_vmx()
+void disable_vmxe_bit()
 {
 	ULONGLONG cr4 = __readcr4();
 	cr4 &= ~CR4_VMX_ENABLE_FLAG;

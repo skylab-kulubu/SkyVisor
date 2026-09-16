@@ -8,8 +8,8 @@
 
 bool virtualize_cpu(vcpu* v_cpu)
 {
-	enable_vmx();
-	v_cpu->vmx_enabled = true;
+	enable_vmxe_bit();
+	v_cpu->vmxe_bit_enabled = true;
 
 	if (!enter_vmx(v_cpu))
 	{
@@ -61,15 +61,26 @@ bool virtualize_cpu(vcpu* v_cpu)
 
 void devirtualize_cpu(vcpu* v_cpu)
 {
-	int regs[4]{};
 	if (v_cpu->vm_launched)
 	{
-		__cpuidex(regs, 0xDEADBEEF, 0xDEADBEEF); // request vmxoff to the vmexit handler
+		int regs[4]{};
+		__cpuidex(regs, 0xDEADBEEF, 0xDEADBEEF);
+		v_cpu->vm_launched = false;
+		v_cpu->in_vmx_mode = false;
 	}
-
-	if (v_cpu->vmx_enabled)
+	else if (v_cpu->in_vmx_mode)
 	{
-		disable_vmx();
-		v_cpu->vmx_enabled = false;
+		if (v_cpu->vmcs_loaded)
+		{
+			__vmx_vmclear(&v_cpu->vmcs_region_phys);
+			v_cpu->vmcs_loaded = false;
+		}
+		__vmx_off();
+		v_cpu->in_vmx_mode = false;
+	}
+	if (v_cpu->vmxe_bit_enabled)
+	{
+		disable_vmxe_bit();
+		v_cpu->vmxe_bit_enabled = false;
 	}
 }
