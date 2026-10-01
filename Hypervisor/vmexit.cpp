@@ -55,10 +55,6 @@ extern "C" int vmexit_handler(guest_registers* guest_regs)
 			__vmx_vmread(VMCS_VMEXIT_INSTRUCTION_LENGTH, &instruction_length);
 
 			g_guest_rip += instruction_length;
-			guest_regs->rax = (UINT64)regs[0];
-			guest_regs->rbx = (UINT64)regs[1];
-			guest_regs->rcx = (UINT64)regs[2];
-			guest_regs->rdx = (UINT64)regs[3];
 			return 1;
 		}
 

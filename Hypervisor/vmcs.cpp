@@ -96,9 +96,9 @@ void write_guest_segment(UINT16 selector, UINT8* gdt_base, UINT16 gdt_limit, UIN
 
 UINT32 adjust_controls(UINT32 requested, UINT32 capability_msr)
 {
-	const UINT64 cap = __readmsr(capability_msr);
-	const UINT32 allowed0 = (UINT32)(cap);
-	const UINT32 allowed1 = (UINT32)(cap >> 32);
+	UINT64 cap = __readmsr(capability_msr);
+	UINT32 allowed0 = (UINT32)(cap);
+	UINT32 allowed1 = (UINT32)(cap >> 32);
 	return (requested | allowed0) & allowed1;
 }
 
