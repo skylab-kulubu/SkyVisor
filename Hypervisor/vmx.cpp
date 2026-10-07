@@ -6,12 +6,13 @@
 
 bool is_vmx_supported()
 {
+	//26.6
 	cpuid_eax_01 data{};
-
 	__cpuid((int*)&data, 1);
 	if (!data.cpuid_feature_information_ecx.virtual_machine_extensions)
 		return false;
 
+	//26.7
 	ia32_feature_control_register control{};
 	control.flags = __readmsr(IA32_FEATURE_CONTROL);
 	if (!control.lock_bit)
@@ -83,6 +84,7 @@ void devirtualize_system()
 
 void enable_vmxe_bit()
 {
+	//26.7
 	ULONGLONG cr4 = __readcr4();
 	cr4 |= CR4_VMX_ENABLE_FLAG;
 	__writecr4(cr4);
@@ -90,6 +92,7 @@ void enable_vmxe_bit()
 
 void disable_vmxe_bit()
 {
+	//26.7
 	ULONGLONG cr4 = __readcr4();
 	cr4 &= ~CR4_VMX_ENABLE_FLAG;
 	__writecr4(cr4);
@@ -97,6 +100,7 @@ void disable_vmxe_bit()
 
 bool enter_vmx(vcpu* v_cpu)
 {
+	//26.8
 	UINT64 cr0 = apply_fixed_bits(__readcr0(), IA32_VMX_CR0_FIXED0, IA32_VMX_CR0_FIXED1);
 	UINT64 cr4 = apply_fixed_bits(__readcr4(), IA32_VMX_CR4_FIXED0, IA32_VMX_CR4_FIXED1);
 
@@ -105,6 +109,7 @@ bool enter_vmx(vcpu* v_cpu)
 
 	vmxon* vmxon_region = &v_cpu->vmxon_region;
 
+	//26.7
 	ia32_vmx_basic_register basic{};
 	basic.flags = __readmsr(IA32_VMX_BASIC);
 
@@ -125,6 +130,7 @@ bool enter_vmx(vcpu* v_cpu)
 
 bool load_vmcs(vcpu* v_cpu)
 {
+	//27.1
 	vmcs* vmcs_region = &v_cpu->vmcs_region;
 
 	ia32_vmx_basic_register basic{};

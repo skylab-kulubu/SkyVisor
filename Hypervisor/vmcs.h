@@ -15,7 +15,10 @@ UINT64 apply_fixed_bits(UINT64 value, UINT32 fixed0_msr, UINT32 fixed1_msr);
 UINT32 vmcs_access_rights(UINT32 descriptor_word, bool unusable);
 bool decode_segment(UINT16 selector, UINT8* gdt_base, UINT16 gdt_limit, decoded_segment& out);
 void write_guest_segment(UINT16 selector, UINT8* gdt_base, UINT16 gdt_limit, UINT64 selector_field, UINT64 limit_field, UINT64 access_rights_field, UINT64 base_field);
-UINT32 adjust_controls(UINT32 requested, UINT32 capability_msr);
+UINT32 adjust_controls(UINT64 requested, UINT32 capability_msr);
+void set_cr3_controls(UINT64 cr3, int index);
+void set_bit(void* address, UINT32 bit, bool set);
+void set_msr_bitmap(vcpu* v_cpu, UINT32 msr, bool write);
 
 bool setup_vmcs(vcpu* v_cpu);
 

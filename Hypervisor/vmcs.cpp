@@ -2,6 +2,7 @@
 #include "hypervisor.h"
 #include <intrin.h>
 #include "ia32.hpp"
+#include <wdf.h>
 
 UINT32 control_capability_msr(UINT32 standard_msr, UINT32 true_msr)
 {
@@ -94,12 +95,79 @@ void write_guest_segment(UINT16 selector, UINT8* gdt_base, UINT16 gdt_limit, UIN
 }
 
 
-UINT32 adjust_controls(UINT32 requested, UINT32 capability_msr)
+UINT32 adjust_controls(UINT64 requested, UINT32 capability_msr)
 {
 	UINT64 cap = __readmsr(capability_msr);
 	UINT32 allowed0 = (UINT32)(cap);
 	UINT32 allowed1 = (UINT32)(cap >> 32);
 	return (requested | allowed0) & allowed1;
+}
+
+void set_cr3_controls(UINT64 cr3, int index)
+{
+	if (index >= 4)
+		return;
+
+	if (index == 0)
+	{
+		__vmx_vmwrite(VMCS_CTRL_CR3_TARGET_VALUE_0, cr3);
+	}
+	else if (index == 1)
+	{
+		__vmx_vmwrite(VMCS_CTRL_CR3_TARGET_VALUE_1, cr3);
+	}
+	else if (index == 2)
+	{
+		__vmx_vmwrite(VMCS_CTRL_CR3_TARGET_VALUE_2, cr3);
+	}
+	else if (index == 3)
+	{
+		__vmx_vmwrite(VMCS_CTRL_CR3_TARGET_VALUE_3, cr3);
+	}
+}
+
+void set_bit(void* address, UINT32 bit, bool set)
+{
+	UINT32 byte = bit / 8;
+	UINT32 bit_pos = bit % 8;
+
+	BYTE* bitmap_addr = (BYTE*)address;
+
+	if (set)
+	{
+		bitmap_addr[byte] |= (1 << bit_pos);
+	}
+	else
+	{
+		bitmap_addr[byte] &= ~(1 << bit_pos);
+	}
+}
+
+void set_msr_bitmap(vcpu* v_cpu, UINT32 msr, bool write)
+{
+	if (msr <= 0x00001FFF)
+	{
+		if (write)
+		{
+			set_bit((UINT8*)&v_cpu->msr_bitmap + 2048, msr, true);
+		}
+		else
+		{
+			set_bit((UINT8*)&v_cpu->msr_bitmap, msr, true);
+		}
+	}
+
+	if ((msr >= 0xC0000000) && msr <= (0xC0001FFF))
+	{
+		if (write)
+		{
+			set_bit((UINT8*)&v_cpu->msr_bitmap + 3072, msr - 0xC0000000, true);
+		}
+		else
+		{
+			set_bit((UINT8*)&v_cpu->msr_bitmap + 1024, msr - 0xC0000000, true);
+		}
+	}
 }
 
 bool setup_vmcs(vcpu* v_cpu)
@@ -115,131 +183,155 @@ bool setup_vmcs(vcpu* v_cpu)
 
 	UINT8* gdt_base = (UINT8*)(get_gdt_base());
 	UINT16 gdt_limit = get_gdt_limit();
+	UINT64 idt_base = get_idt_base();
+	UINT16 idt_limit = get_idt_limit();
 
-	__vmx_vmwrite(VMCS_HOST_ES_SELECTOR, es & 0xF8);
-	__vmx_vmwrite(VMCS_HOST_CS_SELECTOR, cs & 0xF8);
-	__vmx_vmwrite(VMCS_HOST_SS_SELECTOR, ss & 0xF8);
-	__vmx_vmwrite(VMCS_HOST_DS_SELECTOR, ds & 0xF8);
-	__vmx_vmwrite(VMCS_HOST_FS_SELECTOR, fs & 0xF8);
-	__vmx_vmwrite(VMCS_HOST_GS_SELECTOR, gs & 0xF8);
-	__vmx_vmwrite(VMCS_HOST_TR_SELECTOR, tr & 0xF8);
+	UINT64 cr0 = __readcr0();
+	UINT64 cr3 = __readcr3();
+	UINT64 cr4 = __readcr4();
 
-	__vmx_vmwrite(VMCS_GUEST_VMCS_LINK_POINTER, ~0ULL);
-	__vmx_vmwrite(VMCS_GUEST_DEBUGCTL, __readmsr(IA32_DEBUGCTL));
-	__vmx_vmwrite(VMCS_CTRL_TSC_OFFSET, 0);
-	__vmx_vmwrite(VMCS_CTRL_PAGEFAULT_ERROR_CODE_MASK, 0);
-	__vmx_vmwrite(VMCS_CTRL_PAGEFAULT_ERROR_CODE_MATCH, 0);
-	__vmx_vmwrite(VMCS_CTRL_VMEXIT_MSR_STORE_COUNT, 0);
-	__vmx_vmwrite(VMCS_CTRL_VMEXIT_MSR_LOAD_COUNT, 0);
-	__vmx_vmwrite(VMCS_CTRL_VMENTRY_MSR_LOAD_COUNT, 0);
-	__vmx_vmwrite(VMCS_CTRL_VMENTRY_INTERRUPTION_INFORMATION_FIELD, 0);
-	__vmx_vmwrite(VMCS_CTRL_EXCEPTION_BITMAP, 0);
-	__vmx_vmwrite(VMCS_CTRL_CR3_TARGET_COUNT, 0);
+	//27.4.1
+	__vmx_vmwrite(VMCS_GUEST_CR0, cr0);
+	__vmx_vmwrite(VMCS_GUEST_CR3, cr3);
+	__vmx_vmwrite(VMCS_GUEST_CR4, cr4);
 
-	write_guest_segment(es, gdt_base, gdt_limit,
-		VMCS_GUEST_ES_SELECTOR, VMCS_GUEST_ES_LIMIT, VMCS_GUEST_ES_ACCESS_RIGHTS, VMCS_GUEST_ES_BASE);
+	__vmx_vmwrite(VMCS_GUEST_DR7, __readdr(7));
+
+	__vmx_vmwrite(VMCS_GUEST_RSP, 0); // set in asm_vmx_launch
+	__vmx_vmwrite(VMCS_GUEST_RIP, 0); // set in asm_vmx_launch
+	__vmx_vmwrite(VMCS_GUEST_RFLAGS, get_rflags());
+
 	write_guest_segment(cs, gdt_base, gdt_limit,
 		VMCS_GUEST_CS_SELECTOR, VMCS_GUEST_CS_LIMIT, VMCS_GUEST_CS_ACCESS_RIGHTS, VMCS_GUEST_CS_BASE);
 	write_guest_segment(ss, gdt_base, gdt_limit,
 		VMCS_GUEST_SS_SELECTOR, VMCS_GUEST_SS_LIMIT, VMCS_GUEST_SS_ACCESS_RIGHTS, VMCS_GUEST_SS_BASE);
 	write_guest_segment(ds, gdt_base, gdt_limit,
 		VMCS_GUEST_DS_SELECTOR, VMCS_GUEST_DS_LIMIT, VMCS_GUEST_DS_ACCESS_RIGHTS, VMCS_GUEST_DS_BASE);
+	write_guest_segment(es, gdt_base, gdt_limit,
+		VMCS_GUEST_ES_SELECTOR, VMCS_GUEST_ES_LIMIT, VMCS_GUEST_ES_ACCESS_RIGHTS, VMCS_GUEST_ES_BASE);
 	write_guest_segment(fs, gdt_base, gdt_limit,
 		VMCS_GUEST_FS_SELECTOR, VMCS_GUEST_FS_LIMIT, VMCS_GUEST_FS_ACCESS_RIGHTS, VMCS_GUEST_FS_BASE);
+	__vmx_vmwrite(VMCS_GUEST_FS_BASE, __readmsr(IA32_FS_BASE));
 	write_guest_segment(gs, gdt_base, gdt_limit,
 		VMCS_GUEST_GS_SELECTOR, VMCS_GUEST_GS_LIMIT, VMCS_GUEST_GS_ACCESS_RIGHTS, VMCS_GUEST_GS_BASE);
+	__vmx_vmwrite(VMCS_GUEST_GS_BASE, __readmsr(IA32_GS_BASE));
 	write_guest_segment(ldtr, gdt_base, gdt_limit,
 		VMCS_GUEST_LDTR_SELECTOR, VMCS_GUEST_LDTR_LIMIT, VMCS_GUEST_LDTR_ACCESS_RIGHTS, VMCS_GUEST_LDTR_BASE);
 	write_guest_segment(tr, gdt_base, gdt_limit,
 		VMCS_GUEST_TR_SELECTOR, VMCS_GUEST_TR_LIMIT, VMCS_GUEST_TR_ACCESS_RIGHTS, VMCS_GUEST_TR_BASE);
 
-	__vmx_vmwrite(VMCS_GUEST_FS_BASE, __readmsr(IA32_FS_BASE));
-	__vmx_vmwrite(VMCS_GUEST_GS_BASE, __readmsr(IA32_GS_BASE));
+	__vmx_vmwrite(VMCS_GUEST_GDTR_BASE, (UINT64)gdt_base);
+	__vmx_vmwrite(VMCS_GUEST_GDTR_LIMIT, gdt_limit);
+	__vmx_vmwrite(VMCS_GUEST_IDTR_BASE, idt_base);
+	__vmx_vmwrite(VMCS_GUEST_IDTR_LIMIT, idt_limit);
 
-	__vmx_vmwrite(VMCS_GUEST_INTERRUPTIBILITY_STATE, 0);
+	__vmx_vmwrite(VMCS_GUEST_DEBUGCTL, __readmsr(IA32_DEBUGCTL));
+	__vmx_vmwrite(VMCS_GUEST_SYSENTER_CS, __readmsr(IA32_SYSENTER_CS));
+	__vmx_vmwrite(VMCS_GUEST_SYSENTER_ESP, __readmsr(IA32_SYSENTER_ESP));
+	__vmx_vmwrite(VMCS_GUEST_SYSENTER_EIP, __readmsr(IA32_SYSENTER_EIP));
+
+	//27.4.2
 	__vmx_vmwrite(VMCS_GUEST_ACTIVITY_STATE, 0);
+	__vmx_vmwrite(VMCS_GUEST_INTERRUPTIBILITY_STATE, 0);
 	__vmx_vmwrite(VMCS_GUEST_PENDING_DEBUG_EXCEPTIONS, 0);
-	__vmx_vmwrite(VMCS_GUEST_DR7, 0x400);
+	__vmx_vmwrite(VMCS_GUEST_VMCS_LINK_POINTER, ~0ULL);
 
-	UINT32 pin_msr = control_capability_msr(IA32_VMX_PINBASED_CTLS, IA32_VMX_TRUE_PINBASED_CTLS);
-	UINT32 proc_msr = control_capability_msr(IA32_VMX_PROCBASED_CTLS, IA32_VMX_TRUE_PROCBASED_CTLS);
-	UINT32 exit_msr = control_capability_msr(IA32_VMX_EXIT_CTLS, IA32_VMX_TRUE_EXIT_CTLS);
-	UINT32 entry_msr = control_capability_msr(IA32_VMX_ENTRY_CTLS, IA32_VMX_TRUE_ENTRY_CTLS);
-
-	UINT32 procbased = adjust_controls(
-		IA32_VMX_PROCBASED_CTLS_USE_MSR_BITMAPS_FLAG |
-		IA32_VMX_PROCBASED_CTLS_ACTIVATE_SECONDARY_CONTROLS_FLAG,
-		proc_msr);
-
-	UINT32 secondary = adjust_controls(
-		IA32_VMX_PROCBASED_CTLS2_ENABLE_RDTSCP_FLAG|
-		IA32_VMX_PROCBASED_CTLS2_ENABLE_INVPCID_FLAG|
-		IA32_VMX_PROCBASED_CTLS2_ENABLE_XSAVES_FLAG|
-		IA32_VMX_PROCBASED_CTLS2_ENABLE_USER_WAIT_PAUSE_FLAG,
-		IA32_VMX_PROCBASED_CTLS2);
-
-	UINT32 pinbased = adjust_controls(0, pin_msr);
-
-	UINT32 exit_ctls = adjust_controls(
-		IA32_VMX_EXIT_CTLS_HOST_ADDRESS_SPACE_SIZE_FLAG |
-		IA32_VMX_EXIT_CTLS_ACKNOWLEDGE_INTERRUPT_ON_EXIT_FLAG,
-		exit_msr);
-
-	UINT32 entry_ctls = adjust_controls(
-		IA32_VMX_ENTRY_CTLS_IA32E_MODE_GUEST_FLAG,
-		entry_msr);
-
-	__vmx_vmwrite(VMCS_CTRL_PIN_BASED_VM_EXECUTION_CONTROLS, pinbased);
-	__vmx_vmwrite(VMCS_CTRL_PROCESSOR_BASED_VM_EXECUTION_CONTROLS, procbased);
-	__vmx_vmwrite(VMCS_CTRL_SECONDARY_PROCESSOR_BASED_VM_EXECUTION_CONTROLS, secondary);
-	__vmx_vmwrite(VMCS_CTRL_PRIMARY_VMEXIT_CONTROLS, exit_ctls);
-	__vmx_vmwrite(VMCS_CTRL_VMENTRY_CONTROLS, entry_ctls);
-	__vmx_vmwrite(VMCS_CTRL_MSR_BITMAP_ADDRESS, v_cpu->msr_bitmap_phys);
-
-	UINT64 cr0 = __readcr0();
-	UINT64 cr3 = __readcr3();
-	UINT64 cr4 = __readcr4();
-
-	__vmx_vmwrite(VMCS_GUEST_CR0, cr0);
-	__vmx_vmwrite(VMCS_GUEST_CR3, cr3);
-	__vmx_vmwrite(VMCS_GUEST_CR4, cr4);
+	//27.5
 	__vmx_vmwrite(VMCS_HOST_CR0, cr0);
 	__vmx_vmwrite(VMCS_HOST_CR3, cr3);
 	__vmx_vmwrite(VMCS_HOST_CR4, cr4);
 
+	__vmx_vmwrite(VMCS_HOST_RSP, (UINT64)v_cpu->vmm_stack + VMM_STACK_SIZE);
+	__vmx_vmwrite(VMCS_HOST_RIP, (UINT64)asm_vmexit_handler);
+
+	__vmx_vmwrite(VMCS_HOST_CS_SELECTOR, cs & 0xF8);
+	__vmx_vmwrite(VMCS_HOST_SS_SELECTOR, ss & 0xF8);
+	__vmx_vmwrite(VMCS_HOST_DS_SELECTOR, ds & 0xF8);
+	__vmx_vmwrite(VMCS_HOST_ES_SELECTOR, es & 0xF8);
+	__vmx_vmwrite(VMCS_HOST_FS_SELECTOR, fs & 0xF8);
+	__vmx_vmwrite(VMCS_HOST_GS_SELECTOR, gs & 0xF8);
+	__vmx_vmwrite(VMCS_HOST_TR_SELECTOR, tr & 0xF8);
+
+	__vmx_vmwrite(VMCS_HOST_FS_BASE, __readmsr(IA32_FS_BASE));
+	__vmx_vmwrite(VMCS_HOST_GS_BASE, __readmsr(IA32_GS_BASE));
+	decoded_segment tr_seg{};
+	decode_segment(tr, gdt_base, gdt_limit, tr_seg);
+	__vmx_vmwrite(VMCS_HOST_TR_BASE, tr_seg.base);
+	__vmx_vmwrite(VMCS_HOST_GDTR_BASE, (UINT64)gdt_base);
+	__vmx_vmwrite(VMCS_HOST_IDTR_BASE, idt_base);
+
+	__vmx_vmwrite(VMCS_HOST_SYSENTER_CS, __readmsr(IA32_SYSENTER_CS));
+	__vmx_vmwrite(VMCS_HOST_SYSENTER_ESP, __readmsr(IA32_SYSENTER_ESP));
+	__vmx_vmwrite(VMCS_HOST_SYSENTER_EIP, __readmsr(IA32_SYSENTER_EIP));
+
+	//27.6.1
+	UINT32 pinbased_msr = control_capability_msr(IA32_VMX_PINBASED_CTLS, IA32_VMX_TRUE_PINBASED_CTLS);
+	ia32_vmx_pinbased_ctls_register pinbased_ctl{};
+	UINT32 pinbased_adjusted = adjust_controls(pinbased_ctl.flags, pinbased_msr);
+	__vmx_vmwrite(VMCS_CTRL_PIN_BASED_VM_EXECUTION_CONTROLS, pinbased_adjusted);
+
+	//27.6.2
+	UINT32 procbased_msr = control_capability_msr(IA32_VMX_PROCBASED_CTLS, IA32_VMX_TRUE_PROCBASED_CTLS);
+	ia32_vmx_procbased_ctls_register procbased_ctl{};
+	procbased_ctl.use_msr_bitmaps = 1;
+	procbased_ctl.activate_secondary_controls = 1;
+	procbased_ctl.cr3_store_exiting = 0;
+	UINT32 procbased_adjusted = adjust_controls(procbased_ctl.flags, procbased_msr);
+	__vmx_vmwrite(VMCS_CTRL_PROCESSOR_BASED_VM_EXECUTION_CONTROLS, procbased_adjusted);
+
+	ia32_vmx_procbased_ctls2_register procbased_secondary_ctl{};
+	procbased_secondary_ctl.enable_rdtscp = 1;
+	procbased_secondary_ctl.enable_invpcid = 1;
+	procbased_secondary_ctl.enable_xsaves = 1;
+	procbased_secondary_ctl.enable_user_wait_pause = 1;
+	UINT32 procbased_secondary_adjusted = adjust_controls(procbased_secondary_ctl.flags, IA32_VMX_PROCBASED_CTLS2);
+	__vmx_vmwrite(VMCS_CTRL_SECONDARY_PROCESSOR_BASED_VM_EXECUTION_CONTROLS, procbased_secondary_adjusted);
+
+	//27.7.1
+	UINT32 exit_msr = control_capability_msr(IA32_VMX_EXIT_CTLS, IA32_VMX_TRUE_EXIT_CTLS);
+	ia32_vmx_exit_ctls_register exit_ctl{};
+	exit_ctl.host_address_space_size = 1;
+	UINT32 exit_adjusted = adjust_controls(exit_ctl.flags, exit_msr);
+	__vmx_vmwrite(VMCS_CTRL_PRIMARY_VMEXIT_CONTROLS, exit_adjusted);
+
+	UINT32 entry_msr = control_capability_msr(IA32_VMX_ENTRY_CTLS, IA32_VMX_TRUE_ENTRY_CTLS);
+	ia32_vmx_entry_ctls_register entry_ctl{};
+	entry_ctl.ia32e_mode_guest = 1;
+	UINT32 entry_adjusted = adjust_controls(entry_ctl.flags, entry_msr);
+	__vmx_vmwrite(VMCS_CTRL_VMENTRY_CONTROLS, entry_adjusted);
+
+	//27.6.3
+	__vmx_vmwrite(VMCS_CTRL_EXCEPTION_BITMAP, 0);
+
+	//27.6.5
+	__vmx_vmwrite(VMCS_CTRL_TSC_OFFSET, 0);
+
+	//27.6.6
 	__vmx_vmwrite(VMCS_CTRL_CR0_GUEST_HOST_MASK, 0);
 	__vmx_vmwrite(VMCS_CTRL_CR4_GUEST_HOST_MASK, 0);
 	__vmx_vmwrite(VMCS_CTRL_CR0_READ_SHADOW, cr0);
 	__vmx_vmwrite(VMCS_CTRL_CR4_READ_SHADOW, cr4);
 
-	__vmx_vmwrite(VMCS_GUEST_GDTR_BASE, get_gdt_base());
-	__vmx_vmwrite(VMCS_GUEST_IDTR_BASE, get_idt_base());
-	__vmx_vmwrite(VMCS_GUEST_GDTR_LIMIT, gdt_limit);
-	__vmx_vmwrite(VMCS_GUEST_IDTR_LIMIT, get_idt_limit());
+	//27.6.7
+	__vmx_vmwrite(VMCS_CTRL_CR3_TARGET_COUNT, 0);
 
-	__vmx_vmwrite(VMCS_GUEST_RFLAGS, get_rflags());
+	//27.6.9
+	__vmx_vmwrite(VMCS_CTRL_MSR_BITMAP_ADDRESS, v_cpu->msr_bitmap_phys);
+	//set_msr_bitmap(v_cpu, IA32_APERF, false);
 
-	__vmx_vmwrite(VMCS_GUEST_SYSENTER_CS, __readmsr(IA32_SYSENTER_CS));
-	__vmx_vmwrite(VMCS_GUEST_SYSENTER_EIP, __readmsr(IA32_SYSENTER_EIP));
-	__vmx_vmwrite(VMCS_GUEST_SYSENTER_ESP, __readmsr(IA32_SYSENTER_ESP));
-	__vmx_vmwrite(VMCS_HOST_SYSENTER_CS, __readmsr(IA32_SYSENTER_CS));
-	__vmx_vmwrite(VMCS_HOST_SYSENTER_EIP, __readmsr(IA32_SYSENTER_EIP));
-	__vmx_vmwrite(VMCS_HOST_SYSENTER_ESP, __readmsr(IA32_SYSENTER_ESP));
+	//28.2
+	__vmx_vmwrite(VMCS_CTRL_PAGEFAULT_ERROR_CODE_MASK, 0);
+	__vmx_vmwrite(VMCS_CTRL_PAGEFAULT_ERROR_CODE_MATCH, 0);
 
-	decoded_segment tr_seg{};
-	if (!decode_segment(tr, gdt_base, gdt_limit, tr_seg))
-		return false;
+	//27.7.2
+	__vmx_vmwrite(VMCS_CTRL_VMEXIT_MSR_STORE_COUNT, 0);
+	__vmx_vmwrite(VMCS_CTRL_VMEXIT_MSR_LOAD_COUNT, 0);
 
-	__vmx_vmwrite(VMCS_HOST_TR_BASE, tr_seg.base);
-	__vmx_vmwrite(VMCS_HOST_FS_BASE, __readmsr(IA32_FS_BASE));
-	__vmx_vmwrite(VMCS_HOST_GS_BASE, __readmsr(IA32_GS_BASE));
-	__vmx_vmwrite(VMCS_HOST_GDTR_BASE, get_gdt_base());
-	__vmx_vmwrite(VMCS_HOST_IDTR_BASE, get_idt_base());
+	//27.8.2
+	__vmx_vmwrite(VMCS_CTRL_VMENTRY_MSR_LOAD_COUNT, 0);
 
-	__vmx_vmwrite(VMCS_GUEST_RSP, 0); // set in asm_vmx_launch
-	__vmx_vmwrite(VMCS_GUEST_RIP, 0); // set in asm_vmx_launch
-	__vmx_vmwrite(VMCS_HOST_RSP, (UINT64)v_cpu->vmm_stack + VMM_STACK_SIZE);
-	__vmx_vmwrite(VMCS_HOST_RIP, (UINT64)asm_vmexit_handler);
+	//27.8.3
+	__vmx_vmwrite(VMCS_CTRL_VMENTRY_INTERRUPTION_INFORMATION_FIELD, 0);
 
 	return true;
 }
